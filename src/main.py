@@ -67,5 +67,11 @@ def main():
     )
 
     overlay = EnhancedOverlay()
+    # Show the window IMMEDIATELY so it claims the Wayland activation token.
+    # _capture_background() already ran synchronously via mss (<50ms) so
+    # by the time show() is called the screenshot is ready — but show() must
+    # happen before the event loop starts to avoid token expiry.
     overlay.show()
+    overlay.activateWindow()
+    overlay.raise_()
     sys.exit(app.exec())

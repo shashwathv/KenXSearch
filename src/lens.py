@@ -143,7 +143,13 @@ def upload_to_google_lens(mode: str = "search"):
             except Exception:
                 pass
 
-        input("   Press Enter in this terminal to close the browser... ")
+        # Wait until the user closes the browser window — works from terminal
+        # and from keybindings with no terminal attached.
+        print("✅ Browser open — program will exit when you close it.")
+        try:
+            browser.wait_for_event("disconnected", timeout=0)  # 0 = wait forever
+        except Exception:
+            pass
 
     except Exception as e:
         print(f"Error uploading to Google Lens: {e}", file=sys.stderr)

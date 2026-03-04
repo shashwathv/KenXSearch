@@ -20,8 +20,5 @@ if [ ! -f "$VENV_PYTHON" ]; then
     exit 1
 fi
 
-# Brief pause so the terminal window fully hides before the screenshot fires
-sleep 0.6
-
 # Run the python script using the virtual environment's Python
 "$VENV_PYTHON" "${SCRIPT_DIR}/search.py" "$@"

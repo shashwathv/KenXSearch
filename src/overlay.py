@@ -27,32 +27,23 @@ import src.lens as lens
 # ---------------------------------------------------------------------------
 
 class _PillButton(QPushButton):
-    """Professional button: accent dot + label, no emojis."""
+    """iOS-style frosted glass pill — fully rounded, no colours, monochromatic."""
 
-    ACCENTS = {
-        "Search":    (66,  133, 244),   # Blue
-        "Visual":    (52,  168,  83),   # Green
-        "Translate": (251, 188,   5),   # Yellow
-        "Shopping":  (234,  67,  53),   # Red
-    }
-
-    def __init__(self, key: str, label: str, parent=None):
+    def __init__(self, label: str, parent=None):
         super().__init__(parent)
-        self._key     = key
         self._label   = label
-        self._rgb     = self.ACCENTS.get(key, (66, 133, 244))
         self._hover   = 0.0
         self._hovered = False
         self._anim    = QTimer(self)
         self._anim.timeout.connect(self._step)
         self.setFixedHeight(44)
-        self.setMinimumWidth(118)
+        self.setMinimumWidth(112)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFlat(True)
 
     def _step(self):
         target = 1.0 if self._hovered else 0.0
-        self._hover += (target - self._hover) * 0.22
+        self._hover += (target - self._hover) * 0.20
         if abs(self._hover - target) < 0.008:
             self._hover = target
             self._anim.stop()
@@ -71,57 +62,48 @@ class _PillButton(QPushButton):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         r   = self.rect()
-        rad = 10.0
+        rad = float(r.height()) / 2.0   # perfect pill
         h   = self._hover
-        rv, gv, bv = self._rgb
 
-        # Background — dark base with accent wash on hover
-        bg = QPainterPath()
-        bg.addRoundedRect(float(r.x()), float(r.y()),
-                          float(r.width()), float(r.height()), rad, rad)
-        p.fillPath(bg, QBrush(QColor(20, 20, 28, int(200 + h * 30))))
-        if h > 0.01:
-            p.fillPath(bg, QBrush(QColor(rv, gv, bv, int(h * 28))))
+        pill = QPainterPath()
+        pill.addRoundedRect(float(r.x()), float(r.y()),
+                            float(r.width()), float(r.height()), rad, rad)
 
-        # Border: dim white → accent colour on hover
-        br = int(255 * (1 - h) + rv * h)
-        bg_ = int(255 * (1 - h) + gv * h)
-        bb  = int(255 * (1 - h) + bv * h)
-        p.setPen(QPen(QColor(br, bg_, bb, int(38 + h * 180)), 1.1))
-        p.drawPath(bg)
+        # Frosted glass fill — white, low opacity, brightens on hover
+        p.fillPath(pill, QBrush(QColor(255, 255, 255, int(22 + h * 30))))
 
-        # Accent dot (replaces emoji)
-        dot_r = 4.5 + h * 1.0
-        dot_x = float(r.left() + 18)
-        dot_y = float(r.center().y())
-        p.setBrush(QBrush(QColor(rv, gv, bv, int(200 + h * 55))))
-        p.setPen(Qt.PenStyle.NoPen)
-        p.drawEllipse(int(dot_x - dot_r), int(dot_y - dot_r),
-                      int(dot_r * 2), int(dot_r * 2))
+        # Top-half inner shine for the iOS glass-bubble look
+        shine = QPainterPath()
+        shine.addRoundedRect(float(r.x()) + 1, float(r.y()) + 1,
+                             float(r.width()) - 2, float(r.height()) / 2.2,
+                             rad, rad)
+        p.fillPath(shine, QBrush(QColor(255, 255, 255, int(14 + h * 10))))
 
-        # Label
+        # Thin white border — slightly brighter on hover, no colour shift
+        p.setPen(QPen(QColor(255, 255, 255, int(55 + h * 75)), 0.9))
+        p.drawPath(pill)
+
+        # Label — centred, pure white, gets brighter on hover
         f = QFont("Noto Sans", 12)
         f.setWeight(QFont.Weight.Medium)
+        f.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 0.4)
         p.setFont(f)
-        p.setPen(QColor(255, 255, 255, int(160 + h * 95)))
-        p.drawText(r.adjusted(32, 0, -8, 0),
-                   Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
-                   self._label)
+        p.setPen(QColor(255, 255, 255, int(185 + h * 70)))
+        p.drawText(r, Qt.AlignmentFlag.AlignCenter, self._label)
 
 
 # ---------------------------------------------------------------------------
-# Search panel
+# Search panel — individual floating pills, no backing bar
 # ---------------------------------------------------------------------------
-
 class SearchOptionsPanel(QWidget):
-    """Floating dark glass bar that slides up from the bottom."""
+    """Floating pills — no container background, pure iOS feel."""
     searchRequested = pyqtSignal(SearchType)
 
     _BUTTONS = [
-        ("Search",    "Search",    SearchType.TEXT),
-        ("Visual",    "Visual",    SearchType.IMAGE),
-        ("Translate", "Translate", SearchType.TRANSLATE),
-        ("Shopping",  "Shopping",  SearchType.SHOPPING),
+        ("Search",    SearchType.TEXT),
+        ("Visual",    SearchType.IMAGE),
+        ("Translate", SearchType.TRANSLATE),
+        ("Shopping",  SearchType.SHOPPING),
     ]
 
     def __init__(self, parent=None):
@@ -129,33 +111,17 @@ class SearchOptionsPanel(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(14, 10, 14, 10)
-        layout.setSpacing(6)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
 
-        for key, label, stype in self._BUTTONS:
-            btn = _PillButton(key, label, self)
+        for label, stype in self._BUTTONS:
+            btn = _PillButton(label, self)
             btn.clicked.connect(lambda _c, s=stype: self.searchRequested.emit(s))
             layout.addWidget(btn)
 
     def paintEvent(self, _):
-        p   = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        r   = self.rect()
-        rad = 16.0
+        pass  # no background — pills float freely
 
-        path = QPainterPath()
-        path.addRoundedRect(float(r.x()), float(r.y()),
-                            float(r.width()), float(r.height()), rad, rad)
-
-        p.fillPath(path, QBrush(QColor(10, 10, 18, 230)))
-        p.setPen(QPen(QColor(255, 255, 255, 28), 1.0))
-        p.drawPath(path)
-
-        # Subtle inner top highlight for glass depth
-        inner = QPainterPath()
-        inner.addRoundedRect(float(r.x()) + 1, float(r.y()) + 1,
-                             float(r.width()) - 2, float(r.height() / 2), rad, rad)
-        p.fillPath(inner, QBrush(QColor(255, 255, 255, 7)))
 
 
 # ---------------------------------------------------------------------------
@@ -185,8 +151,7 @@ class EnhancedOverlay(QMainWindow):
     def _setup_ui(self):
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint |
-            Qt.WindowType.WindowStaysOnTopHint |
-            Qt.WindowType.Tool
+            Qt.WindowType.WindowStaysOnTopHint
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setCursor(Qt.CursorShape.CrossCursor)
@@ -226,6 +191,16 @@ class EnhancedOverlay(QMainWindow):
         self.hint_label.move(
             (screen_rect.width() - self.hint_label.width()) // 2, 44
         )
+
+        # Ensure the overlay grabs focus when launched from a keybinding
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+    def showEvent(self, event):
+        """Force keyboard focus when the overlay appears."""
+        super().showEvent(event)
+        self.activateWindow()
+        self.raise_()
+        self.setFocus()
 
     def _setup_animations(self):
         self.animation_timer.timeout.connect(self._tick)
