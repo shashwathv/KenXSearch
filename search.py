@@ -4,7 +4,7 @@ Lensix — search.py
 Thin entry point. All logic lives in cmd/.
 """
 
-from .cmd.main import main
+from cmd.main import main
 
 if __name__ == "__main__":
     main()
