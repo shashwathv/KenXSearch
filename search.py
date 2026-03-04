@@ -24,21 +24,64 @@ from pathlib import Path
 from shutil import which
 from urllib.parse import quote_plus
 from typing import Optional, Tuple, List
+import shutil
+import re
+import uuid
 from dataclasses import dataclass
 from enum import Enum
 
-import cv2
-import mss
-import numpy as np
-import pytesseract
-from PIL import Image, ImageEnhance
-from PyQt6.QtCore import (Qt, QTimer, QPropertyAnimation, QRectF,
-                          QEasingCurve, pyqtSignal, QPointF, pyqtProperty)
-from PyQt6.QtGui import (QPainter, QPen, QColor, QPixmap, QImage,
-                         QBrush, QPainterPath)
-from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget,
-                           QHBoxLayout, QPushButton, QLabel, QGraphicsDropShadowEffect)
-from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+# --- Dependency Checker (Moved to top to prevent crash on missing imports) ---
+class DependencyChecker:
+    """Check for required system and Python dependencies"""
+    SYSTEM_PACKAGES = {'tesseract': 'tesseract-ocr'}
+    PYTHON_PACKAGES = {'cv2': 'opencv-python', 'mss': 'mss', 'numpy': 'numpy', 'pytesseract': 'pytesseract', 
+                       'PIL': 'Pillow', 'PyQt6': 'PyQt6', 'playwright': 'playwright'}
+    
+    @classmethod
+    def check(cls) -> bool:
+        """Check all dependencies and print instructions for missing ones."""
+        # Check system dependencies
+        missing_system = [pkg for cmd, pkg in cls.SYSTEM_PACKAGES.items() if not which(cmd)]
+        if missing_system:
+            print("❌ Missing system dependencies:", ', '.join(missing_system))
+            print("\n   Please install them using your package manager.")
+            return False
+
+        # Check Python dependencies
+        missing_python = []
+        for import_name, pkg_name in cls.PYTHON_PACKAGES.items():
+            try:
+                __import__(import_name)
+            except ImportError:
+                missing_python.append(pkg_name)
+        
+        if missing_python:
+            print("❌ Missing Python packages:", ', '.join(missing_python))
+            print(f"\n   Install with: pip install {' '.join(missing_python)}")
+            return False
+            
+        return True
+
+# Check dependencies BEFORE importing third-party libraries
+if not DependencyChecker.check():
+    sys.exit(1)
+
+try:
+    import cv2
+    import mss
+    import numpy as np
+    import pytesseract
+    from PIL import Image, ImageEnhance
+    from PyQt6.QtCore import (Qt, QTimer, QPropertyAnimation, QRectF,
+                            QEasingCurve, pyqtSignal, QPointF, pyqtProperty)
+    from PyQt6.QtGui import (QPainter, QPen, QColor, QPixmap, QImage,
+                            QBrush, QPainterPath)
+    from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget,
+                            QHBoxLayout, QPushButton, QLabel, QGraphicsDropShadowEffect)
+    from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+except ImportError:
+    # This should be caught by DependencyChecker, but just in case
+    sys.exit(1)
 
 # --- Configuration ---
 @dataclass
@@ -431,7 +474,13 @@ class EnhancedOverlay(QMainWindow):
             page = browser.pages[0] if browser.pages else browser.new_page()
             page.goto("https://lens.google.com/upload", wait_until="domcontentloaded", timeout=15000)
             
-            file_input = page.locator('input[type="file"]')
+            # Target the specific image upload input to avoid ambiguity
+            # Google Lens now has multiple inputs (images, PDF, etc.)
+            file_input = page.locator('input[type="file"][accept="image/*"]')
+            if file_input.count() > 1:
+                # Fallback if there are multiple image inputs, pick the first one
+                file_input = file_input.first
+            
             file_input.wait_for(state="attached", timeout=15000)
             
             file_input.set_input_files(str(self.config.screenshot_path))
@@ -489,30 +538,117 @@ def capture_screen_before_overlay() -> Optional[QPixmap]:
     return None
 
 
+# --- Portal Screenshot (Wayland Fallback) ---
+class PortalScreenshot:
+    """
+    Capture screenshot using XDG Desktop Portal via gdbus.
+    This is necessary on strict Wayland compositors (like GNOME 42+)
+    where standard tools return black screens.
+    """
+    @staticmethod
+    def capture(output_path: Path) -> bool:
+        print("   Requesting screenshot via XDG Portal (Check for popup)...")
+        
+        # 1. Start monitoring for the Response signal
+        # We look for the 'Response' signal from the portal
+        monitor_process = subprocess.Popen(
+            ["gdbus", "monitor", "--session", "--dest", "org.freedesktop.portal.Desktop", 
+             "--object-path", "/org/freedesktop/portal/desktop"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+
+        try:
+            # 2. Make the screenshot request
+            # method: org.freedesktop.portal.Screenshot.Screenshot
+            # parent_window: ""
+            # options: {'interactive': <true>, 'handle_token': <' lensix_token '>}
+            token = f"lensix_{uuid.uuid4().hex[:8]}"
+            
+            call_cmd = [
+                "gdbus", "call", "--session",
+                "--dest", "org.freedesktop.portal.Desktop",
+                "--object-path", "/org/freedesktop/portal/desktop",
+                "--method", "org.freedesktop.portal.Screenshot.Screenshot",
+                "",
+                f"{{'interactive': <true>, 'handle_token': <'{token}'>}}" # GVariant format
+            ]
+            
+            subprocess.run(call_cmd, check=True, capture_output=True)
+            
+            # 3. Read monitor output for the response
+            start_time = time.time()
+            captured_uri = None
+            
+            while time.time() - start_time < 30: # 30s timeout for user interaction
+                line = monitor_process.stdout.readline()
+                if not line:
+                    break
+                    
+                if "org.freedesktop.portal.Request.Response" in line:
+                    # We got a response! Now read the next line(s) for the content
+                    # The content format is usually:
+                    # (0, {'uri': <'file:///tmp/...'>})
+                    # 0 = success, 1 = cancelled
+                    
+                    # Read a bit more to ensure we get the body
+                    content = line + monitor_process.stdout.read(1024) 
+                    
+                    if "(0," in content and "'uri':" in content:
+                        # Extract URI
+                        match = re.search(r"'uri': <'(file://.*?)'>", content)
+                        if match:
+                            captured_uri = match.group(1)
+                            break
+                    elif "(1," in content:
+                        print("   User cancelled screenshot.")
+                        return False
+            
+            if captured_uri:
+                # 4. Copy file
+                file_path = captured_uri.replace("file://", "")
+                # Handle URL encoding if present (space -> %20)
+                from urllib.parse import unquote
+                file_path = unquote(file_path)
+                
+                print(f"   Portal saved to: {file_path}")
+                shutil.move(file_path, str(output_path))
+                return True
+                
+        except Exception as e:
+            print(f"   Portal screenshot failed: {e}")
+        finally:
+            monitor_process.kill()
+            
+        return False
+
 def capture_with_command_line_tools(output_path: Path) -> bool:
     """Try various command-line screenshot tools"""
     
+    # 1. Try grim (Native Wayland - Fast & Silent)
+    if which("grim"):
+        try:
+            subprocess.run(["grim", str(output_path)], check=True, capture_output=True)
+            if output_path.exists() and output_path.stat().st_size > 0:
+                print("✓ Screenshot captured with grim")
+                return True
+        except:
+            pass
+            
+    # 2. Try XDG Portal (Reliable on GNOME Wayland - May prompt user)
+    # Check if we are likely on a system that needs this (Wayland + NOT Sway/Hyprland)
+    is_gnome_wayland = config.wayland and "gnome" in config.desktop
+    
+    if is_gnome_wayland or not which("grim"):
+        if which("gdbus") and PortalScreenshot.capture(output_path):
+            print("✓ Screenshot captured with XDG Portal")
+            return True
+
+    # 3. Fallbacks
     tools = [
-        # For modern GNOME Wayland, DBus is the most reliable non-interactive method.
-        # This calls the GNOME Shell's screenshot service directly, avoiding issues
-        # with gnome-screenshot's interactive-only mode in recent versions.
-        ([
-            "dbus-send",
-            "--session",
-            "--dest=org.gnome.Shell",
-            "/org/gnome/Shell/Screenshot",
-            "org.gnome.Shell.Screenshot.Screenshot",
-            "boolean:false", # include_pointer
-            "boolean:false", # flash
-            f"string:{output_path}"
-        ], "gnome-dbus"),
-        # Fallback for older GNOME or if DBus fails
         (["gnome-screenshot", "-f", str(output_path)], "gnome-screenshot"),
-        # grim for other Wayland compositors (Sway, etc.)
-        (["grim", str(output_path)], "grim"),
-        # spectacle for KDE Plasma
         (["spectacle", "-b", "-n", "-o", str(output_path)], "spectacle"),
-        # X11 fallbacks
         (["scrot", str(output_path)], "scrot"),
         (["import", "-window", "root", str(output_path)], "import"),
     ]
@@ -527,8 +663,12 @@ def capture_with_command_line_tools(output_path: Path) -> bool:
                     timeout=10
                 )
                 if output_path.exists() and output_path.stat().st_size > 0:
-                    print(f"✓ Screenshot captured with {tool_name}")
-                    return True
+                    # Check for black screen issues (simple check: implies > 1KB usually)
+                     if output_path.stat().st_size > 1024:
+                        print(f"✓ Screenshot captured with {tool_name}")
+                        return True
+                     else:
+                        print(f"⚠ {tool_name} produced a suspicious file (too small).")
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
                 continue
     
@@ -613,43 +753,11 @@ class OCRProcessor:
                 
         return best_text, best_confidence
 
-# --- Dependency Checker ---
-class DependencyChecker:
-    """Check for required system and Python dependencies"""
-    SYSTEM_PACKAGES = {'tesseract': 'tesseract-ocr'}
-    PYTHON_PACKAGES = {'cv2': 'opencv-python', 'mss': 'mss', 'numpy': 'numpy', 'pytesseract': 'pytesseract', 
-                       'PIL': 'Pillow', 'PyQt6': 'PyQt6', 'playwright': 'playwright'}
-    
-    @classmethod
-    def check(cls) -> bool:
-        """Check all dependencies and print instructions for missing ones."""
-        missing_system = [pkg for cmd, pkg in cls.SYSTEM_PACKAGES.items() if not which(cmd)]
-        if missing_system:
-            print("❌ Missing system dependencies:", ', '.join(missing_system))
-            print("\n   Please install them using your package manager, e.g.:")
-            print(f"   - Ubuntu/Debian: sudo apt install {' '.join(missing_system)}")
-            print(f"   - Fedora: sudo dnf install {' '.join(missing_system)}")
-            print(f"   - Arch: sudo pacman -S {' '.join(missing_system)}")
-            return False
-
-        missing_python = []
-        for import_name, pkg_name in cls.PYTHON_PACKAGES.items():
-            try:
-                __import__(import_name)
-            except ImportError:
-                missing_python.append(pkg_name)
-        
-        if missing_python:
-            print("❌ Missing Python packages:", ', '.join(missing_python))
-            print(f"\n   Install with: pip install {' '.join(missing_python)}")
-            return False
-            
-        return True
+# (DependencyChecker moved to top)
 
 def main():
     """Main entry point for Circle to Search"""
-    if not DependencyChecker.check():
-        sys.exit(1)
+    # Dependency checks now happen at module level
 
     # Create the Qt app BEFORE any QPixmap/QScreen usage
     # Create the Qt app BEFORE any QWidget/QPixmap usage

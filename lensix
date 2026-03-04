@@ -37,5 +37,13 @@ if [ ! -f "$SEARCH_SCRIPT" ]; then
     exit 1
 fi
 
+# --- XWayland Compatibility ---
+# Force XCB (X11) platform for reliable screenshot and window handling
+# This runs the app through XWayland on Wayland desktops
+# Use --native-wayland flag to bypass this and use native Wayland support
+if [[ "$1" != "--native-wayland" ]]; then
+    export QT_QPA_PLATFORM=xcb
+fi
+
 # --- Run the application ---
 exec "$VENV_PYTHON" "$SEARCH_SCRIPT" "$@"

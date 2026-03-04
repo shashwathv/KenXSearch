@@ -44,6 +44,7 @@ declare -A deps=(
     ["python3"]="python3"
     ["pip3"]="python3-pip"
     ["tesseract"]="tesseract-ocr"
+    ["gnome-screenshot"]="gnome-screenshot"
 )
 
 # Add Wayland-specific dependencies if on Wayland
