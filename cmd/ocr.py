@@ -11,7 +11,7 @@ import cv2
 import pytesseract
 from PIL import Image, ImageEnhance
 
-from config import config
+from cmd.config import config
 
 
 class OCRProcessor:

@@ -7,8 +7,8 @@ import sys
 import webbrowser
 from urllib.parse import quote_plus
 
-from config import config, SearchType
-from ocr import OCRProcessor
+from cmd.config import config, SearchType
+from cmd.ocr import OCRProcessor
 
 
 # ---------------------------------------------------------------------------
