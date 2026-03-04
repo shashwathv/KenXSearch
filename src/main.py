@@ -8,8 +8,8 @@ from shutil import which
 
 from PyQt6.QtWidgets import QApplication
 
-from cmd.config import config
-from cmd.overlay import EnhancedOverlay
+from src.config import config
+from src.overlay import EnhancedOverlay
 
 
 class DependencyChecker:
