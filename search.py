@@ -452,7 +452,7 @@ class EnhancedOverlay(QMainWindow):
             page = browser.pages[0] if browser.pages else browser.new_page()
             page.goto("https://lens.google.com/upload", wait_until="domcontentloaded", timeout=15000)
             
-            file_input = page.locator('input[type="file"]')
+            file_input = page.locator('input[type="file"][accept="image/*"]').first
             file_input.wait_for(state="attached", timeout=15000)
             
             file_input.set_input_files(str(self.config.screenshot_path))
@@ -464,10 +464,16 @@ class EnhancedOverlay(QMainWindow):
         except (PlaywrightTimeoutError, Exception) as e:
             print(f"Error uploading to Google Lens: {e}", file=sys.stderr)
         finally:
-            if browser and browser.is_connected(): # <-- MODIFIED THIS LINE
-                browser.close()
-            if playwright:
-                playwright.stop()
+            try:
+                if browser:
+                    browser.close()
+            except Exception:
+                pass
+            try:
+                if playwright:
+                    playwright.stop()
+            except Exception:
+                pass
     
     def keyPressEvent(self, event):
         """Handle keyboard shortcuts."""

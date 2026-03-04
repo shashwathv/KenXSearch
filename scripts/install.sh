@@ -48,6 +48,10 @@ elif command -v apt >/dev/null 2>&1; then
     xdg-desktop-portal-gtk
   )  # grim/slurp/kde-spectacle/wl-clipboard omitted: wlroots-only, not needed on GNOME
   INSTALL_CMD="sudo apt update && sudo apt install -y"
+elif command -v dnf >/dev/null 2>&1; then
+  PKG_MANAGER="dnf"
+  PKGS=(python3 python3-pip tesseract tesseract-langpack-eng scrot gnome-screenshot xdg-desktop-portal xdg-desktop-portal-gtk)
+  INSTALL_CMD="sudo dnf install -y"
 else
   echo "Error: supported package manager not found (need apt or pacman)."
   exit 1
