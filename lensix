@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
 
-# Lensix Launcher Script
-# This script finds the installation directory and runs search.py with the virtual environment
-
-# --- Find the real directory of this script (following symlinks) ---
+# This is a robust method to find the script's real directory, following symlinks
 SOURCE=${BASH_SOURCE[0]}
 while [ -L "$SOURCE" ]; do
   DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
@@ -12,38 +9,19 @@ while [ -L "$SOURCE" ]; do
 done
 SCRIPT_DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
 
-# --- Define paths ---
+
+# Define the path to the Python interpreter inside our virtual environment
 VENV_PYTHON="${SCRIPT_DIR}/.venv/bin/python3"
-SEARCH_SCRIPT="${SCRIPT_DIR}/search.py"
 
-# --- Validation ---
+# Check if the venv python exists. If not, the installation is likely broken.
 if [ ! -f "$VENV_PYTHON" ]; then
-    echo "❌ Error: Python virtual environment not found."
-    echo ""
-    echo "Expected location: $VENV_PYTHON"
-    echo ""
-    echo "The installation may be incomplete or corrupted."
-    echo "Please run the installer again:"
-    echo "  cd $SCRIPT_DIR && ./scripts/install.sh"
+    echo "Error: The Python virtual environment is missing. Please try re-installing."
+    echo "Expected Python at: $VENV_PYTHON"
     exit 1
 fi
 
-if [ ! -f "$SEARCH_SCRIPT" ]; then
-    echo "❌ Error: search.py not found."
-    echo ""
-    echo "Expected location: $SEARCH_SCRIPT"
-    echo ""
-    echo "The installation may be incomplete."
-    exit 1
-fi
+# Brief pause so the terminal window fully hides before the screenshot fires
+sleep 0.6
 
-# --- XWayland Compatibility ---
-# Force XCB (X11) platform for reliable screenshot and window handling
-# This runs the app through XWayland on Wayland desktops
-# Use --native-wayland flag to bypass this and use native Wayland support
-if [[ "$1" != "--native-wayland" ]]; then
-    export QT_QPA_PLATFORM=xcb
-fi
-
-# --- Run the application ---
-exec "$VENV_PYTHON" "$SEARCH_SCRIPT" "$@"
+# Run the python script using the virtual environment's Python
+"$VENV_PYTHON" "${SCRIPT_DIR}/search.py" "$@"

@@ -1,186 +1,135 @@
 #!/usr/bin/env bash
+set -euo pipefail
+IFS=$'\n\t'
 
-# Stop on first error
-set -e
+echo "--- Installing Lensix Dependencies ---"
 
-echo "=========================================="
-echo "   Installing Lensix Dependencies"
-echo "=========================================="
-echo ""
-
-# --- Get the script's directory ---
+# Ensure we're in repo root (where lensix & requirements.txt live)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+cd "${REPO_ROOT}"
 
-echo "Project root: $PROJECT_ROOT"
-echo ""
+# --- Basic sanity checks ---
+[[ -f "lensix" ]] || { echo "Error: 'lensix' launcher not found in ${REPO_ROOT}"; exit 1; }
+[[ -f "requirements.txt" ]] || { echo "Error: 'requirements.txt' not found in ${REPO_ROOT}"; exit 1; }
 
-# --- Function to check if a command exists ---
-command_exists() {
-    command -v "$1" &> /dev/null
-}
+# --- Distro detection & package lists ---
+PKG_MANAGER=""
+INSTALL_CMD=""
+declare -a PKGS
 
-# --- Detect package manager ---
-detect_package_manager() {
-    if command_exists apt; then
-        echo "apt"
-    elif command_exists dnf; then
-        echo "dnf"
-    elif command_exists pacman; then
-        echo "pacman"
-    elif command_exists zypper; then
-        echo "zypper"
-    else
-        echo "unknown"
-    fi
-}
-
-PKG_MANAGER=$(detect_package_manager)
-
-# --- System Dependency Check ---
-echo "[1/5] Checking for system dependencies..."
-
-declare -A deps=(
-    ["python3"]="python3"
-    ["pip3"]="python3-pip"
-    ["tesseract"]="tesseract-ocr"
-    ["gnome-screenshot"]="gnome-screenshot"
-)
-
-# Add Wayland-specific dependencies if on Wayland
-if [ "$XDG_SESSION_TYPE" = "wayland" ]; then
-    deps["grim"]="grim"
-    echo "   Wayland session detected, grim is recommended."
+if command -v pacman >/dev/null 2>&1; then
+  echo "Detected Arch-based Linux (pacman)."
+  PKG_MANAGER="pacman"
+  # Arch package names
+  PKGS=(
+    python            # provides venv on Arch
+    python-pip
+    tesseract
+    tesseract-data-eng
+    scrot
+    gnome-screenshot
+    xdg-desktop-portal
+    xdg-desktop-portal-gtk
+  )  # grim/slurp/spectacle/wl-clipboard omitted: wlroots-only, not needed on GNOME
+  INSTALL_CMD="sudo pacman -S --needed --noconfirm"
+elif command -v apt >/dev/null 2>&1; then
+  echo "Detected Debian/Ubuntu (apt)."
+  PKG_MANAGER="apt"
+  PKGS=(
+    python3
+    python3-pip
+    python3-venv
+    tesseract-ocr
+    tesseract-ocr-eng
+    scrot
+    gnome-screenshot
+    xdg-desktop-portal
+    xdg-desktop-portal-gtk
+  )  # grim/slurp/kde-spectacle/wl-clipboard omitted: wlroots-only, not needed on GNOME
+  INSTALL_CMD="sudo apt update && sudo apt install -y"
+else
+  echo "Error: supported package manager not found (need apt or pacman)."
+  exit 1
 fi
 
-missing_deps=()
-for cmd in "${!deps[@]}"; do
-    if ! command_exists "$cmd"; then
-        missing_deps+=("${deps[$cmd]}")
-    fi
+# --- Detect missing packages ---
+MISSING=()
+case "$PKG_MANAGER" in
+  pacman)
+    for p in "${PKGS[@]}"; do
+      pacman -Qi "$p" >/dev/null 2>&1 || MISSING+=("$p")
+    done
+    ;;
+  apt)
+    for p in "${PKGS[@]}"; do
+      dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q "ok installed" || MISSING+=("$p")
+    done
+    ;;
+esac
+
+if (( ${#MISSING[@]} > 0 )); then
+  echo "Missing system dependencies:"
+  printf '  - %s\n' "${MISSING[@]}"
+  echo
+  echo "Install with:"
+  echo "  $INSTALL_CMD ${MISSING[*]}"
+  exit 1
+fi
+
+# --- Create or reuse venv ---
+if [[ ! -d ".venv" ]]; then
+  echo "Creating virtual environment..."
+  if command -v python3 >/dev/null 2>&1; then
+    python3 -m venv .venv
+  else
+    python -m venv .venv
+  fi
+else
+  echo "Reusing existing virtual environment (.venv)"
+fi
+
+echo "Upgrading pip/setuptools/wheel..."
+./.venv/bin/python -m pip install --upgrade pip setuptools wheel
+
+echo "Installing Python dependencies..."
+./.venv/bin/pip install -r requirements.txt
+
+# If Playwright is in requirements, install browsers
+if ./.venv/bin/python -c "import importlib,sys; sys.exit(0 if importlib.util.find_spec('playwright') else 1)"; then
+  echo "Installing Playwright browsers..."
+  ./.venv/bin/playwright install
+fi
+
+# --- Make 'lensix' available on PATH ---
+echo "Creating the 'lensix' launcher symlink..."
+
+chmod +x "${REPO_ROOT}/lensix"
+
+CANDIDATES=("${HOME}/.local/bin" "/usr/local/bin")
+TARGET_BIN=""
+
+for d in "${CANDIDATES[@]}"; do
+  mkdir -p "$d" 2>/dev/null || true
+  if [[ -w "$d" ]]; then TARGET_BIN="$d"; break; fi
 done
 
-if [ ${#missing_deps[@]} -ne 0 ]; then
-    echo ""
-    echo "❌ Missing system dependencies: ${missing_deps[*]}"
-    echo ""
-    case "$PKG_MANAGER" in
-        apt)
-            echo "Install with: sudo apt update && sudo apt install ${missing_deps[*]}"
-            ;;
-        dnf)
-            echo "Install with: sudo dnf install ${missing_deps[*]}"
-            ;;
-        pacman)
-            echo "Install with: sudo pacman -S ${missing_deps[*]}"
-            ;;
-        zypper)
-            echo "Install with: sudo zypper install ${missing_deps[*]}"
-            ;;
-        *)
-            echo "Please install these packages using your package manager."
-            ;;
-    esac
-    echo ""
-    read -p "Would you like to continue anyway? (y/N): " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        exit 1
-    fi
+LINK_TARGET="${TARGET_BIN:-/usr/local/bin}/lensix"
+if [[ -n "$TARGET_BIN" ]]; then
+  ln -sf "${REPO_ROOT}/lensix" "$LINK_TARGET"
+  echo "Linked: $LINK_TARGET -> ${REPO_ROOT}/lensix"
+  case ":$PATH:" in
+    *:"$TARGET_BIN":*) : ;;
+    *) echo "NOTE: $TARGET_BIN is not on PATH. Add:"
+       echo "  export PATH=\"$TARGET_BIN:\$PATH\""
+       ;;
+  esac
 else
-    echo "   ✓ All system dependencies found"
+  echo "No writable bin dir; using sudo for /usr/local/bin..."
+  sudo mkdir -p /usr/local/bin
+  sudo ln -sf "${REPO_ROOT}/lensix" /usr/local/bin/lensix
+  echo "Linked: /usr/local/bin/lensix -> ${REPO_ROOT}/lensix"
 fi
 
-# --- Python Version Check ---
-echo ""
-echo "[2/5] Checking Python version..."
-PYTHON_VERSION=$(python3 --version 2>&1 | awk '{print $2}')
-REQUIRED_VERSION="3.8"
-
-if ! python3 -c "import sys; sys.exit(0 if sys.version_info >= (3, 8) else 1)"; then
-    echo "   ❌ Python 3.8+ required, found $PYTHON_VERSION"
-    exit 1
-fi
-echo "   ✓ Python $PYTHON_VERSION detected"
-
-# --- Create Virtual Environment ---
-echo ""
-echo "[3/5] Setting up Python virtual environment..."
-cd "$PROJECT_ROOT"
-
-if [ -d ".venv" ]; then
-    echo "   Virtual environment already exists, removing old one..."
-    rm -rf .venv
-fi
-
-python3 -m venv .venv
-echo "   ✓ Virtual environment created"
-
-# --- Activate Virtual Environment and Install Dependencies ---
-echo ""
-echo "[4/5] Installing Python packages..."
-source .venv/bin/activate
-
-# Upgrade pip first
-pip install --upgrade pip wheel setuptools
-
-# Install requirements
-if [ ! -f "requirements.txt" ]; then
-    echo "   ❌ requirements.txt not found!"
-    exit 1
-fi
-
-pip install -r requirements.txt
-echo "   ✓ Python packages installed"
-
-# --- Playwright Browser Installation ---
-echo ""
-echo "[5/5] Installing Playwright browser (this may take a few minutes)..."
-python -m playwright install chromium
-echo "   ✓ Playwright browser installed"
-
-deactivate
-
-# --- Make launcher executable ---
-echo ""
-echo "Making launcher executable..."
-chmod +x "$PROJECT_ROOT/lensix"
-chmod +x "$PROJECT_ROOT/search.py"
-
-# --- Create Symlink for global command ---
-echo ""
-echo "Setting up global 'lensix' command..."
-
-LAUNCHER_PATH="$PROJECT_ROOT/lensix"
-
-# Check if /usr/local/bin is writable
-if [ -w "/usr/local/bin" ]; then
-    # No sudo needed
-    if [ -L "/usr/local/bin/lensix" ] || [ -f "/usr/local/bin/lensix" ]; then
-        rm "/usr/local/bin/lensix" 2>/dev/null || true
-    fi
-    ln -sf "$LAUNCHER_PATH" /usr/local/bin/lensix
-    echo "   ✓ Global command created (no sudo required)"
-elif command_exists sudo; then
-    # Need sudo
-    if [ -L "/usr/local/bin/lensix" ] || [ -f "/usr/local/bin/lensix" ]; then
-        sudo rm "/usr/local/bin/lensix" 2>/dev/null || true
-    fi
-    sudo ln -sf "$LAUNCHER_PATH" /usr/local/bin/lensix
-    echo "   ✓ Global command created (with sudo)"
-else
-    echo "   ⚠ Could not create global command (no sudo access)"
-    echo "   You can still run: $LAUNCHER_PATH"
-fi
-
-echo ""
-echo "=========================================="
-echo "   ✅ Installation Complete!"
-echo "=========================================="
-echo ""
-echo "Run the program from anywhere by typing:"
-echo "   lensix"
-echo ""
-echo "Or directly:"
-echo "   $LAUNCHER_PATH"
-echo ""
+echo
+echo "✅ Installation Complete. Run:  lensix"

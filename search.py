@@ -1,20 +1,5 @@
 #!/usr/bin/env python3
 
-# ==============================================================================
-#  Circle to Search for Linux (v5.5) - Google-Style Implementation
-# ==============================================================================
-#
-# Features:
-#   - Google-like UI with smooth animations and visual effects
-#   - Cross-platform compatibility for all Linux distributions
-#   - Smart screenshot capture with multiple fallback methods
-#   - Enhanced OCR with multi-language support and multiple preprocessing strategies
-#   - Visual search with Google Lens integration (with persistent login)
-#   - Modern overlay with blur effects and animations
-#   - Touch and mouse gesture support
-#
-# ==============================================================================
-
 import os
 import subprocess
 import sys
@@ -24,64 +9,21 @@ from pathlib import Path
 from shutil import which
 from urllib.parse import quote_plus
 from typing import Optional, Tuple, List
-import shutil
-import re
-import uuid
 from dataclasses import dataclass
 from enum import Enum
 
-# --- Dependency Checker (Moved to top to prevent crash on missing imports) ---
-class DependencyChecker:
-    """Check for required system and Python dependencies"""
-    SYSTEM_PACKAGES = {'tesseract': 'tesseract-ocr'}
-    PYTHON_PACKAGES = {'cv2': 'opencv-python', 'mss': 'mss', 'numpy': 'numpy', 'pytesseract': 'pytesseract', 
-                       'PIL': 'Pillow', 'PyQt6': 'PyQt6', 'playwright': 'playwright'}
-    
-    @classmethod
-    def check(cls) -> bool:
-        """Check all dependencies and print instructions for missing ones."""
-        # Check system dependencies
-        missing_system = [pkg for cmd, pkg in cls.SYSTEM_PACKAGES.items() if not which(cmd)]
-        if missing_system:
-            print("❌ Missing system dependencies:", ', '.join(missing_system))
-            print("\n   Please install them using your package manager.")
-            return False
-
-        # Check Python dependencies
-        missing_python = []
-        for import_name, pkg_name in cls.PYTHON_PACKAGES.items():
-            try:
-                __import__(import_name)
-            except ImportError:
-                missing_python.append(pkg_name)
-        
-        if missing_python:
-            print("❌ Missing Python packages:", ', '.join(missing_python))
-            print(f"\n   Install with: pip install {' '.join(missing_python)}")
-            return False
-            
-        return True
-
-# Check dependencies BEFORE importing third-party libraries
-if not DependencyChecker.check():
-    sys.exit(1)
-
-try:
-    import cv2
-    import mss
-    import numpy as np
-    import pytesseract
-    from PIL import Image, ImageEnhance
-    from PyQt6.QtCore import (Qt, QTimer, QPropertyAnimation, QRectF,
-                            QEasingCurve, pyqtSignal, QPointF, pyqtProperty)
-    from PyQt6.QtGui import (QPainter, QPen, QColor, QPixmap, QImage,
-                            QBrush, QPainterPath)
-    from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget,
-                            QHBoxLayout, QPushButton, QLabel, QGraphicsDropShadowEffect)
-    from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
-except ImportError:
-    # This should be caught by DependencyChecker, but just in case
-    sys.exit(1)
+import cv2
+import mss
+import numpy as np
+import pytesseract
+from PIL import Image, ImageEnhance
+from PyQt6.QtCore import (Qt, QTimer, QPropertyAnimation, QRectF,
+                          QEasingCurve, pyqtSignal, QPointF, pyqtProperty)
+from PyQt6.QtGui import (QPainter, QPen, QColor, QPixmap, QImage,
+                         QBrush, QPainterPath, QGuiApplication)
+from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget,
+                           QHBoxLayout, QPushButton, QLabel, QGraphicsDropShadowEffect)
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
 # --- Configuration ---
 @dataclass
@@ -92,7 +34,6 @@ class Config:
     desktop: str = os.getenv('XDG_CURRENT_DESKTOP', '').lower()
     temp_dir: Path = Path("/tmp")
     screenshot_path: Path = temp_dir / "circle_to_search_capture.png"
-    background_screenshot_path: Path = temp_dir / "circle_to_search_background.png"
     playwright_user_data_dir: Path = temp_dir / "circle_search_playwright_data"
 
     # UI Configuration
@@ -179,7 +120,7 @@ class SearchOptionsPanel(QWidget):
         
         self.text_btn = ModernButton("🔍 Search Text")
         self.image_btn = ModernButton("📷 Visual Search")
-        self.translate_btn = ModernButton("🌍 Translate")
+        self.translate_btn = ModernButton("🌐 Translate")
         self.homework_btn = ModernButton("📚 Homework")
         
         self.text_btn.clicked.connect(lambda: self.searchRequested.emit(SearchType.TEXT))
@@ -194,19 +135,20 @@ class SearchOptionsPanel(QWidget):
 
 # --- Enhanced Overlay with Google-style UI ---
 class EnhancedOverlay(QMainWindow):
-    def __init__(self, background_pixmap: QPixmap):
+    def __init__(self):
         super().__init__()
         self.config = config
-        self.screenshot_pixmap = background_pixmap  # Use pre-captured screenshot
-        
+        self.sct = mss.mss() if not self.config.wayland else None
         self.path = QPainterPath()
         self.is_drawing = False
         self.selection_made = False
+        self.screenshot_pixmap = None
         self.animation_timer = QTimer(self)
         self.pulse_value = 0
         self.animated_selection_rect = QRectF()
         
         self.setup_ui()
+        self.capture_background()
         self.setup_animations()
         
     def setup_ui(self):
@@ -217,7 +159,7 @@ class EnhancedOverlay(QMainWindow):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setCursor(Qt.CursorShape.CrossCursor)
         
-        screen = QApplication.primaryScreen()
+        screen = QGuiApplication.primaryScreen()
         screen_rect = screen.geometry()
         self.setGeometry(screen_rect)
         
@@ -269,7 +211,43 @@ class EnhancedOverlay(QMainWindow):
         self.update()
 
     animated_selection_rect_prop = pyqtProperty(QRectF, get_animated_rect, set_animated_rect)
+
+    def capture_background(self):
+        """Capture the current screen as background"""
+        try:
+            if self.config.wayland:
+                temp_path = self.config.temp_dir / "background_capture.png"
+                if self.capture_wayland_screen(temp_path):
+                    self.screenshot_pixmap = QPixmap(str(temp_path))
+                    temp_path.unlink(missing_ok=True)
+            else:
+                monitor = self.sct.monitors[1] # 1 for primary monitor
+                sct_img = self.sct.grab(monitor)
+                img = Image.frombytes('RGB', sct_img.size, sct_img.rgb)
+                qimg = QImage(img.tobytes(), img.width, img.height, QImage.Format.Format_RGB888)
+                self.screenshot_pixmap = QPixmap.fromImage(qimg)
+                
+        except Exception as e:
+            print(f"Error capturing background: {e}", file=sys.stderr)
             
+    def capture_wayland_screen(self, output_path: Path) -> bool:
+        """Capture screen on Wayland systems using fallback methods"""
+        tools = {
+            "grim": ["grim", str(output_path)],
+            "gnome-screenshot": ["gnome-screenshot", "-f", str(output_path)],
+            "spectacle": ["spectacle", "-b", "-n", "-o", str(output_path)],
+        }
+        for tool, command in tools.items():
+            if which(tool):
+                try:
+                    subprocess.run(command, check=True, capture_output=True, timeout=5)
+                    return output_path.exists()
+                except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+                    print(f"Failed to capture with {tool}: {e}", file=sys.stderr)
+                    continue
+        print("No compatible Wayland screenshot tool found.", file=sys.stderr)
+        return False
+    
     def paintEvent(self, event):
         """Paint the overlay with Google-style effects"""
         if not self.screenshot_pixmap:
@@ -390,7 +368,7 @@ class EnhancedOverlay(QMainWindow):
             if self.screenshot_pixmap and w > 0 and h > 0:
                 cropped = self.screenshot_pixmap.copy(x, y, w, h)
                 cropped.save(str(self.config.screenshot_path))
-                print(f"✓ Captured area: {w}x{h} at ({x}, {y})")
+                print(f"Captured area: {w}x{h} at ({x}, {y})")
         except Exception as e:
             print(f"Error capturing selected area: {e}", file=sys.stderr)
     
@@ -474,13 +452,7 @@ class EnhancedOverlay(QMainWindow):
             page = browser.pages[0] if browser.pages else browser.new_page()
             page.goto("https://lens.google.com/upload", wait_until="domcontentloaded", timeout=15000)
             
-            # Target the specific image upload input to avoid ambiguity
-            # Google Lens now has multiple inputs (images, PDF, etc.)
-            file_input = page.locator('input[type="file"][accept="image/*"]')
-            if file_input.count() > 1:
-                # Fallback if there are multiple image inputs, pick the first one
-                file_input = file_input.first
-            
+            file_input = page.locator('input[type="file"]')
             file_input.wait_for(state="attached", timeout=15000)
             
             file_input.set_input_files(str(self.config.screenshot_path))
@@ -492,16 +464,10 @@ class EnhancedOverlay(QMainWindow):
         except (PlaywrightTimeoutError, Exception) as e:
             print(f"Error uploading to Google Lens: {e}", file=sys.stderr)
         finally:
-            if browser and hasattr(browser, 'pages') and len(browser.pages) > 0:
-                try:
-                    browser.close()
-                except:
-                    pass
+            if browser and browser.is_connected(): # <-- MODIFIED THIS LINE
+                browser.close()
             if playwright:
-                try:
-                    playwright.stop()
-                except:
-                    pass
+                playwright.stop()
     
     def keyPressEvent(self, event):
         """Handle keyboard shortcuts."""
@@ -510,169 +476,6 @@ class EnhancedOverlay(QMainWindow):
             QApplication.quit()
         elif event.key() == Qt.Key.Key_Space and self.selection_made:
             self.handle_search_request(SearchType.TEXT)
-
-def capture_screen_before_overlay() -> Optional[QPixmap]:
-    print("📸 Capturing screen...")
-
-    # Skip mss on Wayland; it commonly fails with XGetImage errors
-    if not config.wayland:
-        try:
-            sct = mss.mss()
-            monitor = sct.monitors[1]
-            sct_img = sct.grab(monitor)
-            img = Image.frombytes('RGB', sct_img.size, sct_img.rgb)
-            img.save(str(config.background_screenshot_path))
-            qimg = QImage(img.tobytes(), img.width, img.height, QImage.Format.Format_RGB888)
-            return QPixmap.fromImage(qimg)
-        except Exception as e:
-            print(f"mss capture failed: {e}", file=sys.stderr)
-
-    # Fallback to command-line tools (Wayland/X11)
-    if capture_with_command_line_tools(config.background_screenshot_path):
-        pm = QPixmap(str(config.background_screenshot_path))
-        if not pm.isNull():
-            print(f"✓ Screenshot captured ({pm.width()}x{pm.height()})")
-            return pm
-
-    print("❌ All screenshot methods failed!", file=sys.stderr)
-    return None
-
-
-# --- Portal Screenshot (Wayland Fallback) ---
-class PortalScreenshot:
-    """
-    Capture screenshot using XDG Desktop Portal via gdbus.
-    This is necessary on strict Wayland compositors (like GNOME 42+)
-    where standard tools return black screens.
-    """
-    @staticmethod
-    def capture(output_path: Path) -> bool:
-        print("   Requesting screenshot via XDG Portal (Check for popup)...")
-        
-        # 1. Start monitoring for the Response signal
-        # We look for the 'Response' signal from the portal
-        monitor_process = subprocess.Popen(
-            ["gdbus", "monitor", "--session", "--dest", "org.freedesktop.portal.Desktop", 
-             "--object-path", "/org/freedesktop/portal/desktop"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-
-        try:
-            # 2. Make the screenshot request
-            # method: org.freedesktop.portal.Screenshot.Screenshot
-            # parent_window: ""
-            # options: {'interactive': <true>, 'handle_token': <' lensix_token '>}
-            token = f"lensix_{uuid.uuid4().hex[:8]}"
-            
-            call_cmd = [
-                "gdbus", "call", "--session",
-                "--dest", "org.freedesktop.portal.Desktop",
-                "--object-path", "/org/freedesktop/portal/desktop",
-                "--method", "org.freedesktop.portal.Screenshot.Screenshot",
-                "",
-                f"{{'interactive': <true>, 'handle_token': <'{token}'>}}" # GVariant format
-            ]
-            
-            subprocess.run(call_cmd, check=True, capture_output=True)
-            
-            # 3. Read monitor output for the response
-            start_time = time.time()
-            captured_uri = None
-            
-            while time.time() - start_time < 30: # 30s timeout for user interaction
-                line = monitor_process.stdout.readline()
-                if not line:
-                    break
-                    
-                if "org.freedesktop.portal.Request.Response" in line:
-                    # We got a response! Now read the next line(s) for the content
-                    # The content format is usually:
-                    # (0, {'uri': <'file:///tmp/...'>})
-                    # 0 = success, 1 = cancelled
-                    
-                    # Read a bit more to ensure we get the body
-                    content = line + monitor_process.stdout.read(1024) 
-                    
-                    if "(0," in content and "'uri':" in content:
-                        # Extract URI
-                        match = re.search(r"'uri': <'(file://.*?)'>", content)
-                        if match:
-                            captured_uri = match.group(1)
-                            break
-                    elif "(1," in content:
-                        print("   User cancelled screenshot.")
-                        return False
-            
-            if captured_uri:
-                # 4. Copy file
-                file_path = captured_uri.replace("file://", "")
-                # Handle URL encoding if present (space -> %20)
-                from urllib.parse import unquote
-                file_path = unquote(file_path)
-                
-                print(f"   Portal saved to: {file_path}")
-                shutil.move(file_path, str(output_path))
-                return True
-                
-        except Exception as e:
-            print(f"   Portal screenshot failed: {e}")
-        finally:
-            monitor_process.kill()
-            
-        return False
-
-def capture_with_command_line_tools(output_path: Path) -> bool:
-    """Try various command-line screenshot tools"""
-    
-    # 1. Try grim (Native Wayland - Fast & Silent)
-    if which("grim"):
-        try:
-            subprocess.run(["grim", str(output_path)], check=True, capture_output=True)
-            if output_path.exists() and output_path.stat().st_size > 0:
-                print("✓ Screenshot captured with grim")
-                return True
-        except:
-            pass
-            
-    # 2. Try XDG Portal (Reliable on GNOME Wayland - May prompt user)
-    # Check if we are likely on a system that needs this (Wayland + NOT Sway/Hyprland)
-    is_gnome_wayland = config.wayland and "gnome" in config.desktop
-    
-    if is_gnome_wayland or not which("grim"):
-        if which("gdbus") and PortalScreenshot.capture(output_path):
-            print("✓ Screenshot captured with XDG Portal")
-            return True
-
-    # 3. Fallbacks
-    tools = [
-        (["gnome-screenshot", "-f", str(output_path)], "gnome-screenshot"),
-        (["spectacle", "-b", "-n", "-o", str(output_path)], "spectacle"),
-        (["scrot", str(output_path)], "scrot"),
-        (["import", "-window", "root", str(output_path)], "import"),
-    ]
-    
-    for command, tool_name in tools:
-        if which(command[0]):
-            try:
-                subprocess.run(
-                    command,
-                    check=True,
-                    capture_output=True,
-                    timeout=10
-                )
-                if output_path.exists() and output_path.stat().st_size > 0:
-                    # Check for black screen issues (simple check: implies > 1KB usually)
-                     if output_path.stat().st_size > 1024:
-                        print(f"✓ Screenshot captured with {tool_name}")
-                        return True
-                     else:
-                        print(f"⚠ {tool_name} produced a suspicious file (too small).")
-            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-                continue
-    
-    return False
 
 # --- OCR Enhancement Functions ---
 class OCRProcessor:
@@ -753,43 +556,55 @@ class OCRProcessor:
                 
         return best_text, best_confidence
 
-# (DependencyChecker moved to top)
+# --- Dependency Checker ---
+class DependencyChecker:
+    """Check for required system and Python dependencies"""
+    SYSTEM_PACKAGES = {'tesseract': 'tesseract-ocr', 'grim': 'grim', 'spectacle': 'spectacle'}
+    PYTHON_PACKAGES = {'cv2': 'opencv-python', 'mss': 'mss', 'numpy': 'numpy', 'pytesseract': 'pytesseract', 
+                       'PIL': 'Pillow', 'PyQt6': 'PyQt6', 'playwright': 'playwright'}
+    
+    @classmethod
+    def check(cls) -> bool:
+        """Check all dependencies and print instructions for missing ones."""
+        missing_system = [pkg for cmd, pkg in cls.SYSTEM_PACKAGES.items() if not which(cmd)]
+        if missing_system:
+            print("❌ Missing system dependencies:", ', '.join(missing_system))
+            print("\n   Please install them using your package manager, e.g.:")
+            print(f"   - Ubuntu/Debian: sudo apt install {' '.join(missing_system)}")
+            print(f"   - Fedora: sudo dnf install {' '.join(missing_system)}")
+            print(f"   - Arch: sudo pacman -S {' '.join(missing_system)}")
+            return False
 
+        missing_python = []
+        for import_name, pkg_name in cls.PYTHON_PACKAGES.items():
+            try:
+                __import__(import_name)
+            except ImportError:
+                missing_python.append(pkg_name)
+        
+        if missing_python:
+            print("❌ Missing Python packages:", ', '.join(missing_python))
+            print(f"\n   Install with: pip install {' '.join(missing_python)}")
+            return False
+            
+        return True
+
+# --- Main Application ---
 def main():
     """Main entry point for Circle to Search"""
-    # Dependency checks now happen at module level
-
-    # Create the Qt app BEFORE any QPixmap/QScreen usage
-    # Create the Qt app BEFORE any QWidget/QPixmap usage
-    app = QApplication.instance() or QApplication(sys.argv)
-    app.setApplicationName("Lensix")
-    app.setDesktopFileName("lensix")
-
-
-    # (optional) consistent fonts
-    # app.setStyleSheet("QWidget { font-family: 'Google Sans', 'Roboto', 'Segoe UI', sans-serif; }")
-
-    # Clean up old screenshots
+    if not DependencyChecker.check():
+        sys.exit(1)
+    
     if config.screenshot_path.exists():
         config.screenshot_path.unlink()
-    if config.background_screenshot_path.exists():
-        config.background_screenshot_path.unlink()
-
-    print("Initializing...")
-    background_pixmap = capture_screen_before_overlay()  # now legal (QGuiApplication exists)
-
-    if not background_pixmap or background_pixmap.isNull():
-        print("\n❌ Failed to capture screen!", file=sys.stderr)
-        print("\n🔧 Troubleshooting:", file=sys.stderr)
-        print("1. Try: QT_QPA_PLATFORM=xcb lensix", file=sys.stderr)
-        print("2. Check GNOME/KDE screenshot backends & portals", file=sys.stderr)
-        print("3. Test: gnome-screenshot -f /tmp/test.png && xdg-open /tmp/test.png", file=sys.stderr)
-        sys.exit(1)
-
-    overlay = EnhancedOverlay(background_pixmap)
+    
+    app = QApplication.instance() or QApplication(sys.argv)
+    app.setStyleSheet("QWidget { font-family: 'Google Sans', 'Roboto', 'Segoe UI', sans-serif; }")
+    
+    overlay = EnhancedOverlay()
     overlay.show()
+    
     sys.exit(app.exec())
-
 
 if __name__ == "__main__":
     main()
