@@ -3,137 +3,106 @@ set -euo pipefail
 IFS=$'\n\t'
 
 echo "--- Installing Lensix Dependencies ---"
+echo
 
-# Ensure we're in repo root (where lensix & requirements.txt live)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
 
-# --- Basic sanity checks ---
-[[ -f "lensix" ]] || { echo "Error: 'lensix' launcher not found in ${REPO_ROOT}"; exit 1; }
-[[ -f "requirements.txt" ]] || { echo "Error: 'requirements.txt' not found in ${REPO_ROOT}"; exit 1; }
+[[ -f "lensix" ]]          || { echo "❌ 'lensix' launcher not found in ${REPO_ROOT}"; exit 1; }
+[[ -f "requirements.txt" ]] || { echo "❌ 'requirements.txt' not found in ${REPO_ROOT}"; exit 1; }
 
-# --- Distro detection & package lists ---
-PKG_MANAGER=""
-INSTALL_CMD=""
-declare -a PKGS
-
+# ---------------------------------------------------------------------------
+# Distro detection
+# ---------------------------------------------------------------------------
 if command -v pacman >/dev/null 2>&1; then
-  echo "Detected Arch-based Linux (pacman)."
-  PKG_MANAGER="pacman"
-  # Arch package names
-  PKGS=(
-    python            # provides venv on Arch
-    python-pip
-    tesseract
-    tesseract-data-eng
-    scrot
-    gnome-screenshot
-    xdg-desktop-portal
-    xdg-desktop-portal-gtk
-  )  # grim/slurp/spectacle/wl-clipboard omitted: wlroots-only, not needed on GNOME
-  INSTALL_CMD="sudo pacman -S --needed --noconfirm"
+  DISTRO="arch"
+  SYS_PKGS=(python python-pip tesseract tesseract-data-eng scrot gnome-screenshot xdg-desktop-portal xdg-desktop-portal-gtk)
+  install_sys() { sudo pacman -S --needed --noconfirm "$@"; }
+  is_installed() { pacman -Qi "$1" >/dev/null 2>&1; }
+
 elif command -v apt >/dev/null 2>&1; then
-  echo "Detected Debian/Ubuntu (apt)."
-  PKG_MANAGER="apt"
-  PKGS=(
-    python3
-    python3-pip
-    python3-venv
-    tesseract-ocr
-    tesseract-ocr-eng
-    scrot
-    gnome-screenshot
-    xdg-desktop-portal
-    xdg-desktop-portal-gtk
-  )  # grim/slurp/kde-spectacle/wl-clipboard omitted: wlroots-only, not needed on GNOME
-  INSTALL_CMD="sudo apt update && sudo apt install -y"
+  DISTRO="debian"
+  SYS_PKGS=(python3 python3-pip python3-venv tesseract-ocr tesseract-ocr-eng scrot gnome-screenshot xdg-desktop-portal xdg-desktop-portal-gtk)
+  install_sys() { sudo apt-get update -qq && sudo apt-get install -y "$@"; }
+  is_installed() { dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q "ok installed"; }
+
 elif command -v dnf >/dev/null 2>&1; then
-  PKG_MANAGER="dnf"
-  PKGS=(python3 python3-pip tesseract tesseract-langpack-eng scrot gnome-screenshot xdg-desktop-portal xdg-desktop-portal-gtk)
-  INSTALL_CMD="sudo dnf install -y"
+  DISTRO="fedora"
+  SYS_PKGS=(python3 python3-pip tesseract tesseract-langpack-eng scrot gnome-screenshot xdg-desktop-portal xdg-desktop-portal-gtk)
+  install_sys() { sudo dnf install -y "$@"; }
+  is_installed() { rpm -q "$1" >/dev/null 2>&1; }
+
 else
-  echo "Error: supported package manager not found (need apt or pacman)."
+  echo "❌ No supported package manager found (apt / dnf / pacman)."
   exit 1
 fi
 
-# --- Detect missing packages ---
+echo "✓ Detected distro: ${DISTRO}"
+
+# ---------------------------------------------------------------------------
+# Auto-install missing system packages
+# ---------------------------------------------------------------------------
 MISSING=()
-case "$PKG_MANAGER" in
-  pacman)
-    for p in "${PKGS[@]}"; do
-      pacman -Qi "$p" >/dev/null 2>&1 || MISSING+=("$p")
-    done
-    ;;
-  apt)
-    for p in "${PKGS[@]}"; do
-      dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q "ok installed" || MISSING+=("$p")
-    done
+for pkg in "${SYS_PKGS[@]}"; do
+  is_installed "$pkg" || MISSING+=("$pkg")
+done
+
+if (( ${#MISSING[@]} > 0 )); then
+  echo "Installing missing system packages: ${MISSING[*]}"
+  install_sys "${MISSING[@]}"
+else
+  echo "✓ All system packages already installed"
+fi
+
+# ---------------------------------------------------------------------------
+# Python venv
+# ---------------------------------------------------------------------------
+if [[ ! -d ".venv" ]]; then
+  echo "Creating virtual environment..."
+  python3 -m venv .venv
+else
+  echo "✓ Reusing existing virtual environment"
+fi
+
+echo "Upgrading pip..."
+./.venv/bin/python -m pip install --upgrade pip setuptools wheel -q
+
+echo "Installing Python dependencies..."
+./.venv/bin/pip install -r requirements.txt -q
+
+# ---------------------------------------------------------------------------
+# Playwright browser install (fixed importlib bug)
+# ---------------------------------------------------------------------------
+if ./.venv/bin/python -c "import playwright" 2>/dev/null; then
+  echo "Installing Playwright browsers..."
+  ./.venv/bin/playwright install chromium
+else
+  echo "⚠  Playwright not found in venv — skipping browser install"
+fi
+
+# ---------------------------------------------------------------------------
+# Symlink lensix onto PATH
+# ---------------------------------------------------------------------------
+echo "Creating 'lensix' launcher..."
+chmod +x "${REPO_ROOT}/lensix"
+
+BIN_DIR="${HOME}/.local/bin"
+mkdir -p "${BIN_DIR}"
+ln -sf "${REPO_ROOT}/lensix" "${BIN_DIR}/lensix"
+echo "✓ Linked: ${BIN_DIR}/lensix → ${REPO_ROOT}/lensix"
+
+# Warn if ~/.local/bin is not on PATH
+case ":${PATH}:" in
+  *:"${BIN_DIR}":*) ;;
+  *)
+    echo
+    echo "⚠  ${BIN_DIR} is not on your PATH."
+    echo "   Add this line to your ~/.bashrc or ~/.zshrc:"
+    echo '   export PATH="$HOME/.local/bin:$PATH"'
+    echo "   Then run:  source ~/.bashrc"
     ;;
 esac
 
-if (( ${#MISSING[@]} > 0 )); then
-  echo "Missing system dependencies:"
-  printf '  - %s\n' "${MISSING[@]}"
-  echo
-  echo "Install with:"
-  echo "  $INSTALL_CMD ${MISSING[*]}"
-  exit 1
-fi
-
-# --- Create or reuse venv ---
-if [[ ! -d ".venv" ]]; then
-  echo "Creating virtual environment..."
-  if command -v python3 >/dev/null 2>&1; then
-    python3 -m venv .venv
-  else
-    python -m venv .venv
-  fi
-else
-  echo "Reusing existing virtual environment (.venv)"
-fi
-
-echo "Upgrading pip/setuptools/wheel..."
-./.venv/bin/python -m pip install --upgrade pip setuptools wheel
-
-echo "Installing Python dependencies..."
-./.venv/bin/pip install -r requirements.txt
-
-# If Playwright is in requirements, install browsers
-if ./.venv/bin/python -c "import importlib,sys; sys.exit(0 if importlib.util.find_spec('playwright') else 1)"; then
-  echo "Installing Playwright browsers..."
-  ./.venv/bin/playwright install
-fi
-
-# --- Make 'lensix' available on PATH ---
-echo "Creating the 'lensix' launcher symlink..."
-
-chmod +x "${REPO_ROOT}/lensix"
-
-CANDIDATES=("${HOME}/.local/bin" "/usr/local/bin")
-TARGET_BIN=""
-
-for d in "${CANDIDATES[@]}"; do
-  mkdir -p "$d" 2>/dev/null || true
-  if [[ -w "$d" ]]; then TARGET_BIN="$d"; break; fi
-done
-
-LINK_TARGET="${TARGET_BIN:-/usr/local/bin}/lensix"
-if [[ -n "$TARGET_BIN" ]]; then
-  ln -sf "${REPO_ROOT}/lensix" "$LINK_TARGET"
-  echo "Linked: $LINK_TARGET -> ${REPO_ROOT}/lensix"
-  case ":$PATH:" in
-    *:"$TARGET_BIN":*) : ;;
-    *) echo "NOTE: $TARGET_BIN is not on PATH. Add:"
-       echo "  export PATH=\"$TARGET_BIN:\$PATH\""
-       ;;
-  esac
-else
-  echo "No writable bin dir; using sudo for /usr/local/bin..."
-  sudo mkdir -p /usr/local/bin
-  sudo ln -sf "${REPO_ROOT}/lensix" /usr/local/bin/lensix
-  echo "Linked: /usr/local/bin/lensix -> ${REPO_ROOT}/lensix"
-fi
-
 echo
-echo "✅ Installation Complete. Run:  lensix"
+echo "✅ Done! Run:  lensix"
