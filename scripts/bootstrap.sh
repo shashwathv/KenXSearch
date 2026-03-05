@@ -8,7 +8,7 @@ GITHUB_REPO="shashwathv/KenXSearch"
 INSTALL_DIR="${HOME}/.local/share/KenXSearch"
 
 echo "╔══════════════════════════════════╗"
-echo "║        Lensix  Installer         ║"
+echo "║      KenXSearch Installer        ║"
 echo "╚══════════════════════════════════╝"
 echo
 

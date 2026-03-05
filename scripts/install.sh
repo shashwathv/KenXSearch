@@ -90,7 +90,7 @@ chmod +x "${REPO_ROOT}/KenXSearch"
 BIN_DIR="${HOME}/.local/bin"
 mkdir -p "${BIN_DIR}"
 ln -sf "${REPO_ROOT}/KenXSearch" "${BIN_DIR}/KenXSearch"
-echo "✓ Linked: ${BIN_DIR}/KenXSearch → ${REPO_ROOT}/KenxSearch"
+echo "✓ Linked: ${BIN_DIR}/KenXSearch → ${REPO_ROOT}/KenXSearch"
 
 # Warn if ~/.local/bin is not on PATH
 case ":${PATH}:" in
