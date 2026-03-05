@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Lensix bootstrap — pipe directly to bash, no chmod needed:
-#   curl -fsSL https://raw.githubusercontent.com/shashwathv/lensix/main/scripts/bootstrap.sh | bash
+# KenXSearch bootstrap — pipe directly to bash, no chmod needed:
+#   curl -fsSL https://raw.githubusercontent.com/shashwathv/KenXSearch/main/scripts/bootstrap.sh | bash
 set -euo pipefail
 IFS=$'\n\t'
 
