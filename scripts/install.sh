@@ -9,7 +9,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
 
-[[ -f "KenXSearch" ]]          || { echo "❌ 'KenXSearch' launcher not found in ${REPO_ROOT}"; exit 1; }
+# Rename launcher to KenXSearch if it still has the old name
+if [[ -f "lensix" && ! -f "KenXSearch" ]]; then
+  mv lensix KenXSearch
+fi
+[[ -f "KenXSearch" ]] || { echo "❌ 'KenXSearch' launcher not found in ${REPO_ROOT}"; exit 1; }
 [[ -f "requirements.txt" ]] || { echo "❌ 'requirements.txt' not found in ${REPO_ROOT}"; exit 1; }
 
 # ---------------------------------------------------------------------------
@@ -90,7 +94,7 @@ chmod +x "${REPO_ROOT}/KenXSearch"
 BIN_DIR="${HOME}/.local/bin"
 mkdir -p "${BIN_DIR}"
 ln -sf "${REPO_ROOT}/KenXSearch" "${BIN_DIR}/KenXSearch"
-echo "✓ Linked: ${BIN_DIR}/KenXSearch → ${REPO_ROOT}/KenXSearch"
+echo "✓ Linked: ${BIN_DIR}/KenXSearch → ${REPO_ROOT}/KenxSearch"
 
 # Warn if ~/.local/bin is not on PATH
 case ":${PATH}:" in
