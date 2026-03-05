@@ -2,14 +2,14 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-echo "--- Installing Lensix Dependencies ---"
+echo "--- Installing KenXSearch Dependencies ---"
 echo
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
 
-[[ -f "lensix" ]]          || { echo "❌ 'lensix' launcher not found in ${REPO_ROOT}"; exit 1; }
+[[ -f "KenXSearch" ]]          || { echo "❌ 'KenXSearch' launcher not found in ${REPO_ROOT}"; exit 1; }
 [[ -f "requirements.txt" ]] || { echo "❌ 'requirements.txt' not found in ${REPO_ROOT}"; exit 1; }
 
 # ---------------------------------------------------------------------------
@@ -84,13 +84,13 @@ fi
 # ---------------------------------------------------------------------------
 # Symlink lensix onto PATH
 # ---------------------------------------------------------------------------
-echo "Creating 'lensix' launcher..."
-chmod +x "${REPO_ROOT}/lensix"
+echo "Creating 'KenXSearch' launcher..."
+chmod +x "${REPO_ROOT}/KenXSearch"
 
 BIN_DIR="${HOME}/.local/bin"
 mkdir -p "${BIN_DIR}"
-ln -sf "${REPO_ROOT}/lensix" "${BIN_DIR}/lensix"
-echo "✓ Linked: ${BIN_DIR}/lensix → ${REPO_ROOT}/lensix"
+ln -sf "${REPO_ROOT}/KenXSearch" "${BIN_DIR}/KenXSearch"
+echo "✓ Linked: ${BIN_DIR}/KenXSearch → ${REPO_ROOT}/KenxSearch"
 
 # Warn if ~/.local/bin is not on PATH
 case ":${PATH}:" in
@@ -105,4 +105,4 @@ case ":${PATH}:" in
 esac
 
 echo
-echo "✅ Done! Run:  lensix"
+echo "✅ Done! Run:  KenXSearch"
