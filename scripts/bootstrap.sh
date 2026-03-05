@@ -4,8 +4,8 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-GITHUB_REPO="shashwathv/lensix"
-INSTALL_DIR="${HOME}/.local/share/lensix"
+GITHUB_REPO="shashwathv/KenXSearch"
+INSTALL_DIR="${HOME}/.local/share/KenXSearch"
 
 echo "╔══════════════════════════════════╗"
 echo "║        Lensix  Installer         ║"
