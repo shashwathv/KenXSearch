@@ -1,15 +1,14 @@
-import os
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import List
+import os
 
 
 @dataclass
 class Config:
     """All configuration settings for Lensix."""
     use_freeform_selection: bool = True
-    wayland: bool = os.getenv('XDG_SESSION_TYPE', '').lower() == 'wayland'
     desktop: str = os.getenv('XDG_CURRENT_DESKTOP', '').lower()
     temp_dir: Path = Path("/tmp")
     screenshot_path: Path = temp_dir / "circle_to_search_capture.png"
