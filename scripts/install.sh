@@ -9,11 +9,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
 
-# Rename launcher to KenXSearch if it still has the old name
-if [[ -f "lensix" && ! -f "KenXSearch" ]]; then
-  mv lensix KenXSearch
-fi
-[[ -f "KenXSearch" ]] || { echo "❌ 'KenXSearch' launcher not found in ${REPO_ROOT}"; exit 1; }
+[[ -f "KenXSearch" ]]          || { echo "❌ 'KenXSearch' launcher not found in ${REPO_ROOT}"; exit 1; }
 [[ -f "requirements.txt" ]] || { echo "❌ 'requirements.txt' not found in ${REPO_ROOT}"; exit 1; }
 
 # ---------------------------------------------------------------------------
@@ -21,19 +17,19 @@ fi
 # ---------------------------------------------------------------------------
 if command -v pacman >/dev/null 2>&1; then
   DISTRO="arch"
-  SYS_PKGS=(python python-pip tesseract tesseract-data-eng scrot gnome-screenshot xdg-desktop-portal xdg-desktop-portal-gtk)
+  SYS_PKGS=(python python-pip tesseract tesseract-data-eng scrot gnome-screenshot xdg-desktop-portal xdg-desktop-portal-gtk ttf-jetbrains-mono)
   install_sys() { sudo pacman -S --needed --noconfirm "$@"; }
   is_installed() { pacman -Qi "$1" >/dev/null 2>&1; }
 
 elif command -v apt >/dev/null 2>&1; then
   DISTRO="debian"
-  SYS_PKGS=(python3 python3-pip python3-venv tesseract-ocr tesseract-ocr-eng scrot gnome-screenshot xdg-desktop-portal xdg-desktop-portal-gtk)
+  SYS_PKGS=(python3 python3-pip python3-venv tesseract-ocr tesseract-ocr-eng scrot gnome-screenshot xdg-desktop-portal xdg-desktop-portal-gtk fonts-jetbrains-mono)
   install_sys() { sudo apt-get update -qq && sudo apt-get install -y "$@"; }
   is_installed() { dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q "ok installed"; }
 
 elif command -v dnf >/dev/null 2>&1; then
   DISTRO="fedora"
-  SYS_PKGS=(python3 python3-pip tesseract tesseract-langpack-eng scrot gnome-screenshot xdg-desktop-portal xdg-desktop-portal-gtk)
+  SYS_PKGS=(python3 python3-pip tesseract tesseract-langpack-eng scrot gnome-screenshot xdg-desktop-portal xdg-desktop-portal-gtk jetbrains-mono-fonts)
   install_sys() { sudo dnf install -y "$@"; }
   is_installed() { rpm -q "$1" >/dev/null 2>&1; }
 
