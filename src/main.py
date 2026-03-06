@@ -32,7 +32,7 @@ class DependencyChecker:
     def check(cls) -> bool:
         missing_sys = [pkg for cmd, pkg in cls.SYSTEM.items() if not which(cmd)]
         if missing_sys:
-            print("❌ Missing system dependencies:", ', '.join(missing_sys))
+            print("\u274c Missing system dependencies:", ', '.join(missing_sys))
             print("\n   Install with your package manager, e.g.:")
             print(f"   Ubuntu/Debian : sudo apt install {' '.join(missing_sys)}")
             print(f"   Fedora        : sudo dnf install {' '.join(missing_sys)}")
@@ -47,7 +47,7 @@ class DependencyChecker:
                 missing_py.append(pkg)
 
         if missing_py:
-            print("❌ Missing Python packages:", ', '.join(missing_py))
+            print("\u274c Missing Python packages:", ', '.join(missing_py))
             print(f"\n   Install with: pip install {' '.join(missing_py)}")
             return False
 
