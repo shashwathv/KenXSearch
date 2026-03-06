@@ -16,8 +16,8 @@ from PyQt6.QtGui import (QPainter, QPen, QColor, QPixmap, QImage,
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget,
                               QHBoxLayout, QPushButton, QLabel)
 
-from lensix_cmd.config import config, SearchType
-import lensix_cmd.lens as lens
+from src.config import config, SearchType
+import src.lens as lens
 
 # ---------------------------------------------------------------------------
 # Tech Button
