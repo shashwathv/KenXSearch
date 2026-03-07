@@ -81,7 +81,7 @@ class _TechButton(QPushButton):
         p.setPen(QColor(0, 242, 255, int(180 + h * 75)))
         p.drawText(r, Qt.AlignmentFlag.AlignCenter, self._label.upper())
 # ---------------------------------------------------------------------------
-# Search panel — individual floating pills, no backing bar
+# Search panel \u2014 individual floating pills, no backing bar
 # ---------------------------------------------------------------------------
 class SearchOptionsPanel(QWidget):
     """Floating tech buttons."""
@@ -260,7 +260,7 @@ class EnhancedOverlay(QMainWindow):
         if not (self.is_drawing or self.selection_made):
             return
 
-        # Clip path — rounded rect when settled, freehand path while drawing
+        # Clip path \u2014 rounded rect when settled, freehand path while drawing
         if self.selection_made:
             clip = QPainterPath()
             clip.addRect(self.animated_selection_rect)
@@ -286,7 +286,7 @@ class EnhancedOverlay(QMainWindow):
         scan_grad.setColorAt(1, QColor(0, 242, 255, 120))
         p.fillRect(QRectF(rect.left(), scan_y - 2, rect.width(), 2), QBrush(scan_grad))
 
-        # Corner brackets — int casts required: drawLine(4 args) needs ints in PyQt6
+        # Corner brackets \u2014 int casts required: drawLine(4 args) needs ints in PyQt6
         p.setPen(QPen(QColor(0, 242, 255, 220), 2))
         l  = 20
         x1 = int(rect.left())

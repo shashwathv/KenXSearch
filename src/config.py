@@ -9,10 +9,7 @@ from typing import List
 class Config:
     """All configuration settings for Lensix."""
     use_freeform_selection: bool = True
-    # Force mss (XWayland) capture on KDE — spectacle CLI changed in Plasma 6
-    # Force mss on GNOME too — gnome-screenshot was removed in GNOME 46+
-    # PyQt6 always runs under XWayland so mss works on all DEs regardless
-    wayland: bool = False
+    wayland: bool = os.getenv('XDG_SESSION_TYPE', '').lower() == 'wayland'
     desktop: str = os.getenv('XDG_CURRENT_DESKTOP', '').lower()
     temp_dir: Path = Path("/tmp")
     screenshot_path: Path = temp_dir / "circle_to_search_capture.png"
