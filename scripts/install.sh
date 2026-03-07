@@ -17,19 +17,19 @@ cd "${REPO_ROOT}"
 # ---------------------------------------------------------------------------
 if command -v pacman >/dev/null 2>&1; then
   DISTRO="arch"
-  SYS_PKGS=(python python-pip tesseract tesseract-data-eng scrot gnome-screenshot xdg-desktop-portal xdg-desktop-portal-gtk ttf-jetbrains-mono)
+  SYS_PKGS=(python python-pip tesseract tesseract-data-eng xdg-desktop-portal xdg-desktop-portal-gtk ttf-jetbrains-mono)
   install_sys() { sudo pacman -S --needed --noconfirm "$@"; }
   is_installed() { pacman -Qi "$1" >/dev/null 2>&1; }
 
 elif command -v apt >/dev/null 2>&1; then
   DISTRO="debian"
-  SYS_PKGS=(python3 python3-pip python3-venv tesseract-ocr tesseract-ocr-eng scrot gnome-screenshot xdg-desktop-portal xdg-desktop-portal-gtk fonts-jetbrains-mono)
+  SYS_PKGS=(python3 python3-pip python3-venv tesseract-ocr tesseract-ocr-eng xdg-desktop-portal xdg-desktop-portal-gtk fonts-jetbrains-mono)
   install_sys() { sudo apt-get update -qq && sudo apt-get install -y "$@"; }
   is_installed() { dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q "ok installed"; }
 
 elif command -v dnf >/dev/null 2>&1; then
   DISTRO="fedora"
-  SYS_PKGS=(python3 python3-pip tesseract tesseract-langpack-eng scrot gnome-screenshot xdg-desktop-portal xdg-desktop-portal-gtk jetbrains-mono-fonts)
+  SYS_PKGS=(python3 python3-pip tesseract tesseract-langpack-eng xdg-desktop-portal xdg-desktop-portal-gtk jetbrains-mono-fonts)
   install_sys() { sudo dnf install -y "$@"; }
   is_installed() { rpm -q "$1" >/dev/null 2>&1; }
 
