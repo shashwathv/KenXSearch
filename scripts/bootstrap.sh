@@ -17,22 +17,23 @@ command -v git >/dev/null 2>&1 || { echo "❌ git not found. Install git and ret
 mkdir -p "$(dirname "${INSTALL_DIR}")"
 
 if [ -d "${INSTALL_DIR}/.git" ]; then
-  echo "↻  Existing install found — updating..."
-  git -C "${INSTALL_DIR}" fetch --tags --prune
-  git -C "${INSTALL_DIR}" pull --ff-only
+  echo "→ Existing install found — updating..."
+  git -C "${INSTALL_DIR}" fetch -q --tags --prune
+  git -C "${INSTALL_DIR}" pull -q --ff-only
+  echo "✓ Up to date"
 else
   if [ -d "${INSTALL_DIR}" ]; then
     BAK="${INSTALL_DIR}.bak.$(date +%s)"
     echo "⚠  Non-git directory found, backing up to ${BAK}"
     mv "${INSTALL_DIR}" "${BAK}"
   fi
-  echo "↓  Cloning repository..."
-  git clone --depth 1 "https://github.com/${GITHUB_REPO}.git" "${INSTALL_DIR}"
+  echo "→ Cloning KenXSearch..."
+  git clone -q --depth 1 "https://github.com/${GITHUB_REPO}.git" "${INSTALL_DIR}"
+  echo "✓ Done"
 fi
 
 echo
-echo "▶  Running installer..."
+echo "→ Running installer..."
 cd "${INSTALL_DIR}"
-# chmod is handled here so the user never has to run it manually
 chmod +x scripts/install.sh
 exec bash scripts/install.sh

@@ -2,14 +2,16 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-echo "--- Installing KenXSearch Dependencies ---"
+echo "╔══════════════════════════════════╗"
+echo "║    KenXSearch — Dependency Setup ║"
+echo "╚══════════════════════════════════╝"
 echo
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
 
-[[ -f "KenXSearch" ]]          || { echo "❌ 'KenXSearch' launcher not found in ${REPO_ROOT}"; exit 1; }
+[[ -f "KenXSearch" ]]       || { echo "❌ 'KenXSearch' launcher not found in ${REPO_ROOT}"; exit 1; }
 [[ -f "requirements.txt" ]] || { echo "❌ 'requirements.txt' not found in ${REPO_ROOT}"; exit 1; }
 
 # ---------------------------------------------------------------------------
@@ -35,14 +37,15 @@ elif command -v dnf >/dev/null 2>&1; then
   is_installed() { rpm -q "$1" >/dev/null 2>&1; }
 
 else
-  echo "❌ No supported package manager found (apt / dnf / pacman)."
+  echo "❌ Unsupported distro — no apt, dnf, or pacman found."
+  echo "   Supported: Debian/Ubuntu, Fedora, Arch/Manjaro"
   exit 1
 fi
 
-echo "✓ Detected distro: ${DISTRO}"
+echo "✓ Detected: ${DISTRO}"
 
 # ---------------------------------------------------------------------------
-# Auto-install missing system packages
+# System packages
 # ---------------------------------------------------------------------------
 MISSING=()
 for pkg in "${SYS_PKGS[@]}"; do
@@ -50,33 +53,33 @@ for pkg in "${SYS_PKGS[@]}"; do
 done
 
 if (( ${#MISSING[@]} > 0 )); then
-  echo "Installing missing system packages: ${MISSING[*]}"
+  echo "→ Installing system packages: ${MISSING[*]}"
   install_sys "${MISSING[@]}"
 else
-  echo "✓ All system packages already installed"
+  echo "✓ System packages already installed"
 fi
 
 # ---------------------------------------------------------------------------
 # Python venv
 # ---------------------------------------------------------------------------
 if [[ ! -d ".venv" ]]; then
-  echo "Creating virtual environment..."
+  echo "→ Creating virtual environment..."
   if [[ "${DISTRO}" == "arch" ]]; then
-    # Use system site packages so pacman-installed numpy/pillow/pyqt6 are available
+    # Use system site-packages so pacman-installed numpy/pillow/pyqt6 are visible
     python3 -m venv --system-site-packages .venv
   else
     python3 -m venv .venv
   fi
 else
-  echo "✓ Reusing existing virtual environment"
+  echo "✓ Virtual environment already exists"
 fi
 
-echo "Upgrading pip..."
+echo "→ Upgrading pip..."
 ./.venv/bin/python -m pip install --upgrade pip setuptools wheel -q
 
-echo "Installing Python dependencies..."
+echo "→ Installing Python dependencies..."
 if [[ "${DISTRO}" == "arch" ]]; then
-  # Skip packages already installed via pacman to avoid compiling from source
+  # Exclude packages already provided by pacman to avoid source compilation
   grep -v -E "numpy|Pillow|PyQt6" requirements.txt > /tmp/kenxsearch_req_filtered.txt
   ./.venv/bin/pip install -r /tmp/kenxsearch_req_filtered.txt -q
 else
@@ -84,35 +87,36 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Playwright browser install (fixed importlib bug)
+# Playwright browser
 # ---------------------------------------------------------------------------
-if ./.venv/bin/python -c "import playwright" 2>/dev/null; then
-  echo "Installing Playwright browsers..."
+if ./.venv/bin/python -c "import playwright.sync_api" 2>/dev/null; then
+  echo "→ Installing Playwright Chromium browser..."
   ./.venv/bin/playwright install chromium
 else
   echo "⚠  Playwright not found in venv — skipping browser install"
 fi
 
 # ---------------------------------------------------------------------------
-# Symlink lensix onto PATH
+# Launcher symlink
 # ---------------------------------------------------------------------------
-echo "Creating 'KenXSearch' launcher..."
+echo "→ Setting up launcher..."
 chmod +x "${REPO_ROOT}/KenXSearch"
 
 BIN_DIR="${HOME}/.local/bin"
 mkdir -p "${BIN_DIR}"
 ln -sf "${REPO_ROOT}/KenXSearch" "${BIN_DIR}/KenXSearch"
-echo "✓ Linked: ${BIN_DIR}/KenXSearch → ${REPO_ROOT}/KenxSearch"
+echo "✓ Linked: ${BIN_DIR}/KenXSearch → ${REPO_ROOT}/KenXSearch"
 
-# Auto-add ~/.local/bin to PATH in shell config if missing
+# ---------------------------------------------------------------------------
+# PATH setup
+# ---------------------------------------------------------------------------
+EXPORT_LINE='export PATH="$HOME/.local/bin:$PATH"'
 case ":${PATH}:" in
   *:"${BIN_DIR}":*) ;;
   *)
-    echo
-    echo "⚠  ${BIN_DIR} is not on your PATH — adding it automatically..."
-    EXPORT_LINE='export PATH="$HOME/.local/bin:$PATH"'
+    echo "→ Adding ${BIN_DIR} to PATH..."
     for RC in "${HOME}/.zshrc" "${HOME}/.bashrc"; do
-      if [[ -f "${RC}" ]] && ! grep -qF "${EXPORT_LINE}" "${RC}"; then
+      if ! grep -qF "${EXPORT_LINE}" "${RC}" 2>/dev/null; then
         echo "${EXPORT_LINE}" >> "${RC}"
         echo "✓ Added to ${RC}"
       fi
@@ -123,4 +127,7 @@ case ":${PATH}:" in
 esac
 
 echo
-echo "✅ Done! Run:  KenXSearch"
+echo "✅ Installation complete!"
+echo
+echo "   Run:  KenXSearch"
+echo
