@@ -17,7 +17,8 @@ cd "${REPO_ROOT}"
 # ---------------------------------------------------------------------------
 if command -v pacman >/dev/null 2>&1; then
   DISTRO="arch"
-  SYS_PKGS=(python python-pip tesseract tesseract-data-eng xdg-desktop-portal xdg-desktop-portal-gtk ttf-jetbrains-mono)
+  # numpy, pillow, pyqt6 installed via pacman — prebuilt, no compilation needed
+  SYS_PKGS=(python python-pip python-numpy python-pillow python-pyqt6 tesseract tesseract-data-eng xdg-desktop-portal xdg-desktop-portal-gtk ttf-jetbrains-mono)
   install_sys() { sudo pacman -S --needed --noconfirm "$@"; }
   is_installed() { pacman -Qi "$1" >/dev/null 2>&1; }
 
@@ -60,7 +61,12 @@ fi
 # ---------------------------------------------------------------------------
 if [[ ! -d ".venv" ]]; then
   echo "Creating virtual environment..."
-  python3 -m venv .venv
+  if [[ "${DISTRO}" == "arch" ]]; then
+    # Use system site packages so pacman-installed numpy/pillow/pyqt6 are available
+    python3 -m venv --system-site-packages .venv
+  else
+    python3 -m venv .venv
+  fi
 else
   echo "✓ Reusing existing virtual environment"
 fi
@@ -69,7 +75,13 @@ echo "Upgrading pip..."
 ./.venv/bin/python -m pip install --upgrade pip setuptools wheel -q
 
 echo "Installing Python dependencies..."
-./.venv/bin/pip install -r requirements.txt -q
+if [[ "${DISTRO}" == "arch" ]]; then
+  # Skip packages already installed via pacman to avoid compiling from source
+  grep -v -E "numpy|Pillow|PyQt6" requirements.txt > /tmp/kenxsearch_req_filtered.txt
+  ./.venv/bin/pip install -r /tmp/kenxsearch_req_filtered.txt -q
+else
+  ./.venv/bin/pip install -r requirements.txt -q
+fi
 
 # ---------------------------------------------------------------------------
 # Playwright browser install (fixed importlib bug)
@@ -92,15 +104,21 @@ mkdir -p "${BIN_DIR}"
 ln -sf "${REPO_ROOT}/KenXSearch" "${BIN_DIR}/KenXSearch"
 echo "✓ Linked: ${BIN_DIR}/KenXSearch → ${REPO_ROOT}/KenxSearch"
 
-# Warn if ~/.local/bin is not on PATH
+# Auto-add ~/.local/bin to PATH in shell config if missing
 case ":${PATH}:" in
   *:"${BIN_DIR}":*) ;;
   *)
     echo
-    echo "⚠  ${BIN_DIR} is not on your PATH."
-    echo "   Add this line to your ~/.bashrc or ~/.zshrc:"
-    echo '   export PATH="$HOME/.local/bin:$PATH"'
-    echo "   Then run:  source ~/.bashrc"
+    echo "⚠  ${BIN_DIR} is not on your PATH — adding it automatically..."
+    EXPORT_LINE='export PATH="$HOME/.local/bin:$PATH"'
+    for RC in "${HOME}/.zshrc" "${HOME}/.bashrc"; do
+      if [[ -f "${RC}" ]] && ! grep -qF "${EXPORT_LINE}" "${RC}"; then
+        echo "${EXPORT_LINE}" >> "${RC}"
+        echo "✓ Added to ${RC}"
+      fi
+    done
+    export PATH="${BIN_DIR}:${PATH}"
+    echo "✓ PATH updated for this session"
     ;;
 esac
 
